@@ -1,0 +1,76 @@
+:root {
+  --glass-bg: rgba(255, 255, 255, 0.15);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.2);
+  --glass-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --glass-blur: 10px;
+  --text-color: #333;
+  --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  --button-bg: rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="dark"] {
+  --glass-bg: rgba(0, 0, 0, 0.2);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+  --text-color: #f0f0f0;
+  --bg-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  --button-bg: rgba(0, 0, 0, 0.3);
+}
+
+body {
+  background: var(--bg-gradient);
+  color: var(--text-color);
+  transition: background 0.3s ease, color 0.3s ease;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  margin: 0;
+  padding: 20px;
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border: var(--glass-border);
+  border-radius: 12px;
+  box-shadow: var(--glass-shadow);
+  padding: 20px;
+  margin: 10px;
+  color: var(--text-color);
+  transition: all 0.3s ease;
+}
+
+.glass-card:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+button {
+  background: var(--button-bg);
+  border: var(--glass-border);
+  border-radius: 8px;
+  padding: 8px 16px;
+  color: var(--text-color);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin: 5px 0;
+}
+
+button:hover {
+  background: rgba(255, 255, 255, 0.4);
+  transform: translateY(-1px);
+}
+
+@media (max-width: 768px) {
+  :root {
+    --glass-blur: 5px;
+  }
+
+  .glass-card {
+    margin: 5px;
+    padding: 10px;
+  }
+
+  body {
+    padding: 10px;
+  }
+}
