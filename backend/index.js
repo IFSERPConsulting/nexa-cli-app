@@ -10,20 +10,63 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // User routes
-app.post('/api/register', require('./validation').validateRegistration, require('./users').register);
-app.post('/api/login', require('./users').login);
+app.post('/api/register', require('./validation').validateRegistration, async (req, res) => {
+  try {
+    const result = await require('./users').register(req.body.username, req.body.password);
+    res.json(result);
+  } catch (error) {
+    console.error('Register failed:', error.message);
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+app.post('/api/login', async (req, res) => {
+  try {
+    const result = await require('./users').login(req.body.username, req.body.password);
+    res.json(result);
+  } catch (error) {
+    console.error('Login failed:', error.message);
+    res.status(401).json({ error: error.message });
+  }
+});
+
+// Model routes
+app.get('/api/models', (req, res) => {
+  const availableModels = ['NexaAI/OmniNeural-4B', 'NexaAI/phi4-mini-npu-turbo'];
+  res.json({ models: availableModels });
+});
+
+app.put('/api/user/default-model', authenticate, async (req, res) => {
+  try {
+    const { model } = req.body;
+    const result = await require('./users').updateDefaultModel(req.user.userId, model);
+    res.json({ defaultModel: result.default_model });
+  } catch (error) {
+    console.error('Update default model failed:', error.message);
+    res.status(500).json({ error: 'Failed to update default model' });
+  }
+});
 
 // Command routes
 app.post('/api/run-nexa', authenticate, rateLimitMiddleware('run-nexa'), require('./validation').validateCommand, async (req, res) => {
-  const { command } = req.body;
+  const { command, model } = req.body;
+  let fullCommand = command;
+  if (!command.startsWith('run ')) {
+    fullCommand = `run ${model} ${command}`;
+  }
   try {
-    const result = await require('execa')('nexa', command.split(' '));
-    await require('./commands').saveCommand(req.user.userId, command, result.stdout);
+    const result = await require('execa')('nexa', fullCommand.split(' '));
+    await require('./commands').saveCommand(req.user.userId, fullCommand, result.stdout);
     res.json({ success: true, output: result.stdout });
   } catch (error) {
-    await require('./commands').saveCommand(req.user.userId, command, error.stderr);
-    res.status(500).json({ success: false, error: error.stderr });
+    const errorMessage = error.stderr || error.message || 'Unknown error';
+    await require('./commands').saveCommand(req.user.userId, fullCommand, errorMessage);
+    res.status(500).json({ success: false, error: errorMessage });
   }
 });
 

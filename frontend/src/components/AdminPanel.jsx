@@ -10,7 +10,7 @@ export default function AdminPanel({ token }) {
     const fetchRateLimits = async () => {
       setLoading(true);
       try {
-        const response = await axios.get('http://localhost:3001/api/admin/rate-limits', {
+        const response = await axios.get('/api/admin/rate-limits', {
           headers: { Authorization: `Bearer ${token}` },
         });
         setRateLimits(response.data);
@@ -25,7 +25,7 @@ export default function AdminPanel({ token }) {
 
   const handleReset = async (userId) => {
     try {
-      await axios.delete(`http://localhost:3001/api/admin/rate-limits/${userId}`, {
+      await axios.delete(`/api/admin/rate-limits/${userId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setRateLimits(rateLimits.filter(limit => limit.user_id !== userId));

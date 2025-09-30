@@ -13,20 +13,31 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 async function register(username, password) {
   const hashedPassword = await bcrypt.hash(password, 10);
-  const query = 'INSERT INTO users(username, password_hash) VALUES($1, $2) RETURNING *';
-  const { rows } = await pool.query(query, [username, hashedPassword]);
+  const query = 'INSERT INTO users(username, password_hash, default_model) VALUES($1, $2, $3) RETURNING *';
+  const { rows } = await pool.query(query, [username, hashedPassword, 'NexaAI/OmniNeural-4B']);
   return rows[0];
 }
 
 async function login(username, password) {
-  const query = 'SELECT * FROM users WHERE username = $1';
-  const { rows } = await pool.query(query, [username]);
-  if (rows.length === 0) throw new Error('User not found');
-  const user = rows[0];
-  const isValid = await bcrypt.compare(password, user.password_hash);
-  if (!isValid) throw new Error('Invalid password');
-  const token = jwt.sign({ userId: user.id, username: user.username }, JWT_SECRET, { expiresIn: '1h' });
-  return { token };
+  try {
+    const query = 'SELECT * FROM users WHERE username = $1';
+    const { rows } = await pool.query(query, [username]);
+    if (rows.length === 0) throw new Error('User not found');
+    const user = rows[0];
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) throw new Error('Invalid password');
+    const token = jwt.sign({ userId: user.id, username: user.username, defaultModel: user.default_model }, JWT_SECRET, { expiresIn: '1h' });
+    return { token, defaultModel: user.default_model };
+  } catch (error) {
+    console.error('Login error:', error.message);
+    throw error;
+  }
 }
 
-module.exports = { register, login, JWT_SECRET, pool };
+async function updateDefaultModel(userId, model) {
+  const query = 'UPDATE users SET default_model = $1 WHERE id = $2 RETURNING *';
+  const { rows } = await pool.query(query, [model, userId]);
+  return rows[0];
+}
+
+module.exports = { register, login, updateDefaultModel, JWT_SECRET, pool };

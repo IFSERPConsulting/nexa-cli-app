@@ -16,8 +16,8 @@ export default function StatsDashboard({ token }) {
       setLoading(true);
       try {
         const [statsRes, commandsRes] = await Promise.all([
-          axios.get('http://localhost:3001/api/stats', { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get('http://localhost:3001/api/commands', { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get('/api/stats', { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get('/api/commands', { headers: { Authorization: `Bearer ${token}` } }),
         ]);
         setStats(statsRes.data);
         setCommandHistory(commandsRes.data);
