@@ -18,6 +18,7 @@ function App() {
   const [selectedModel, setSelectedModel] = useState('NexaAI/OmniNeural-4B');
   const [availableModels, setAvailableModels] = useState([]);
   const [defaultModel, setDefaultModel] = useState('NexaAI/OmniNeural-4B');
+  const [diagnostics, setDiagnostics] = useState(null);
 
   const fetchAvailableModels = async () => {
     try {
@@ -45,6 +46,21 @@ function App() {
       setError('Failed to fetch command history.');
     }
   };
+
+  const fetchDiagnostics = async () => {
+    try {
+      const response = await axios.get('/api/diagnostics');
+      setDiagnostics(response.data);
+    } catch (error) {
+      setDiagnostics({ error: 'Failed to fetch diagnostics' });
+    }
+  };
+
+  useEffect(() => {
+    fetchDiagnostics();
+    const interval = setInterval(fetchDiagnostics, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
 
   const handleSetDefaultModel = async () => {
     try {
@@ -298,6 +314,22 @@ function App() {
             </div>
             <StatsDashboard token={token} />
             {username === 'admin' && <AdminPanel token={token} />}
+            {diagnostics && (
+              <div style={{
+                marginTop: '20px',
+                padding: '10px',
+                background: 'rgba(255, 255, 255, 0.1)',
+                borderRadius: '8px',
+                border: '1px solid rgba(255, 255, 255, 0.3)',
+                fontSize: '0.9em',
+                color: 'var(--text-color)',
+              }}>
+                <strong>System Status:</strong>
+                <div>Nexa CLI: {diagnostics.nexa ? (diagnostics.nexa.available ? '✅ Available' : '❌ Not Available') : 'Loading...'}</div>
+                <div>Database: {diagnostics.database ? (diagnostics.database.ok ? '✅ Connected' : '❌ Disconnected') : 'Loading...'}</div>
+                {diagnostics.error && <div style={{ color: 'red' }}>Error: {diagnostics.error}</div>}
+              </div>
+            )}
           </div>
         )}
       </div>
