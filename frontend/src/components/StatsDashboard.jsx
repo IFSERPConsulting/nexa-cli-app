@@ -21,6 +21,7 @@ export default function StatsDashboard({ token }) {
         ]);
         setStats(statsRes.data);
         setCommandHistory(commandsRes.data);
+        setError('');
       } catch (error) {
         setError('Failed to fetch data.');
       } finally {

@@ -22,7 +22,24 @@ const validateRegistration = [
 ];
 
 const validateCommand = [
-  body('command').trim().isLength({ min: 1 }).escape(),
+  body('command')
+    .isString()
+    .bail()
+    .custom((value) => {
+      if (!value || !value.trim()) {
+        throw new Error('Command is required.');
+      }
+      if (value.length > 5000) {
+        throw new Error('Command is too long (max 5000 characters).');
+      }
+      return true;
+    }),
+  body('model')
+    .optional()
+    .isString()
+    .withMessage('Model must be a string.')
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Model value is invalid.'),
   (req, res, next) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

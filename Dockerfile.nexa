@@ -1,0 +1,45 @@
+FROM debian:bookworm-slim
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG NEXA_INSTALL_URL="https://github.com/NexaAI/nexa-sdk/releases/download/v0.2.38-rc3/nexa-cli_linux_x86_64.sh"
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates bash xz-utils nodejs sox ffmpeg \
+ && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user and persistent home for config/cache
+RUN useradd -m -u 1001 -s /bin/bash nexa \
+ && mkdir -p /var/lib/nexa \
+ && chown -R nexa:nexa /var/lib/nexa
+
+ENV HOME=/var/lib/nexa \
+    PATH=/usr/local/bin:$PATH \
+    NEXA_HOST=0.0.0.0:18181
+
+# Install Nexa CLI (amd64). For arm64 hosts, compose can force linux/amd64 via platform setting.
+RUN set -eux; \
+  url="$NEXA_INSTALL_URL"; \
+  echo "Attempting $url"; \
+  if ! curl -fsSI "$url" >/dev/null 2>&1; then \
+    echo "Falling back to latest release asset discovery"; \
+    url=$(curl -fsSL --retry 5 --retry-all-errors https://api.github.com/repos/NexaAI/nexa-sdk/releases \
+      | grep -oE 'https://[^"[:space:]]*/nexa-cli_linux_x86_64.sh' \
+      | head -n1); \
+  fi; \
+  echo "Resolved Nexa installer URL: $url"; \
+  curl -fsSL --retry 5 --retry-all-errors "$url" -o /tmp/nexa-cli.sh; \
+  chmod +x /tmp/nexa-cli.sh; \
+  bash /tmp/nexa-cli.sh || sh /tmp/nexa-cli.sh || true; \
+  rm -f /tmp/nexa-cli.sh; \
+  command -v nexa || (echo "ERROR: Nexa CLI not installed" && exit 1)
+
+USER nexa
+WORKDIR /var/lib/nexa
+
+EXPOSE 18181
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -fsS http://localhost:18181/health >/dev/null || exit 1
+
+# HTTP gateway that wraps Nexa CLI for inference
+COPY nexa-sidecar/server.js /srv/server.js
+CMD ["node", "/srv/server.js"]

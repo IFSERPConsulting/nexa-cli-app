@@ -1,3 +1,4 @@
+const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
@@ -9,7 +10,15 @@ const pool = new Pool({
   port: process.env.DB_PORT,
 });
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = (() => {
+  if (process.env.JWT_SECRET) return process.env.JWT_SECRET;
+  if (process.env.JWT_SECRET_FILE && fs.existsSync(process.env.JWT_SECRET_FILE)) {
+    try {
+      return fs.readFileSync(process.env.JWT_SECRET_FILE, 'utf8').trim();
+    } catch (_) {}
+  }
+  return process.env.JWT_SECRET;
+})();
 
 async function register(username, password) {
   const hashedPassword = await bcrypt.hash(password, 10);

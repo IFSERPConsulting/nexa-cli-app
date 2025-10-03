@@ -25,6 +25,34 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    env_file:
+      - .env
+    environment:
+      # Override DB host to service name inside Compose network
+      DB_HOST: db
+      PORT: 3001
+      NEXA_ENABLED: ${NEXA_ENABLED:-true}
+      NEXA_MODE: ${NEXA_MODE:-http}
+      # Default to host Nexa sidecar so Windows NPU can be used
+      NEXA_HTTP_URL: ${NEXA_HTTP_URL:-http://host.docker.internal:18181}
+      NEXA_HTTP_INFER_PATH: ${NEXA_HTTP_INFER_PATH:-/v1/chat/completions}
+      NEXA_ALLOWED_MODELS: ${NEXA_ALLOWED_MODELS:-NexaAI/OmniNeural-4B,NexaAI/phi4-mini-npu-turbo}
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-3001}:3001"
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   frontend:
     build:
       context: .
@@ -37,6 +65,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    depends_on:
+      - backend
     ports:
       - "${FRONTEND_PORT:-80}:80"
     restart: unless-stopped
@@ -46,5 +76,44 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  nexa:
+    profiles: ["nexa"]
+    build:
+      context: .
+      dockerfile: Dockerfile.nexa
+      args:
+        # Optionally override to a specific release asset URL
+        # e.g. https://github.com/NexaAI/nexa-sdk/releases/download/<tag>/nexa-cli_linux_x86_64.sh
+        NEXA_INSTALL_URL: ${NEXA_INSTALL_URL:-https://github.com/NexaAI/nexa-sdk/releases/download/v0.2.37/nexa-cli_linux_x86_64.sh}
+    # Run as amd64 so we can use the upstream Linux x86_64 CLI on arm64 hosts
+    platform: linux/amd64
+    environment:
+      - NEXA_HOST=0.0.0.0:18181
+      - PREPULL_MODELS=${PREPULL_MODELS}
+      - 'NEXA_INFER_EXTRA=${NEXA_INFER_EXTRA:---ngl 0}'
+      # Prefer file/secret in production (mounted below)
+      - NEXA_LICENSE_FILE=/run/secrets/nexa_license
+    ports:
+      - "18181:18181"
+    volumes:
+      # Persist Nexa config/cache under a single data root
+      - nexa_data:/var/lib/nexa
+    shm_size: 4g
+    secrets:
+      - nexa_license
+    # secrets:
+    #   - nexa_license
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   db_data:
+  nexa_data:
+
+secrets:
+  nexa_license:
+    file: ./secrets/nexa_license

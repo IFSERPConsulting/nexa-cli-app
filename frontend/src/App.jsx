@@ -42,6 +42,8 @@ function App() {
         headers: { Authorization: `Bearer ${token}` },
       });
       setCommands(response.data);
+      // Clear any stale error coming from a previous failed fetch
+      setError('');
     } catch (error) {
       setError('Failed to fetch command history.');
     }
@@ -325,7 +327,18 @@ function App() {
                 color: 'var(--text-color)',
               }}>
                 <strong>System Status:</strong>
-                <div>Nexa CLI: {diagnostics.nexa ? (diagnostics.nexa.available ? '✅ Available' : '❌ Not Available') : 'Loading...'}</div>
+                <div>
+                  Nexa: {diagnostics.nexa
+                    ? (diagnostics.nexa.enabled === false
+                        ? 'Disabled'
+                        : (diagnostics.nexa.available ? '✅ Available' : '❌ Not Available'))
+                    : 'Loading...'}
+                </div>
+                <div>
+                  License: {diagnostics.nexa && diagnostics.nexa.license
+                    ? (diagnostics.nexa.license.present ? '✅ Present' : '❌ Missing')
+                    : 'Unknown'}
+                </div>
                 <div>Database: {diagnostics.database ? (diagnostics.database.ok ? '✅ Connected' : '❌ Disconnected') : 'Loading...'}</div>
                 {diagnostics.error && <div style={{ color: 'red' }}>Error: {diagnostics.error}</div>}
               </div>
