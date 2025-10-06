@@ -133,18 +133,6 @@ For a full list of environment variables, inspect `.env`, `docker-compose.yml`, 
 
 ---
 
-## Example: Integrating with IFS Cloud
-Bring Nexa-powered generative assistance directly into your IFS Cloud processes:
-1. **Expose the API** – deploy this app in your preferred environment (Azure Container Apps, AWS ECS, on-prem) and secure it behind your gateway/IdP.
-2. **Create an IFS business event** – configure IFS Cloud to emit events (e.g., service request created). Forward the payload to the Nexa CLI App’s `/api/run-nexa` endpoint using an integration flow (IFS Connect, Azure Logic Apps, or MuleSoft).
-3. **Craft domain prompts** – build prompt templates that summarize IFS data (asset history, work orders) and request recommendations or draft responses from Nexa models.
-4. **Store enriched insights** – write the Nexa output back to IFS via a REST/ODATA call, populate custom fields, or trigger further workflow automations.
-5. **Monitor in the dashboard** – operators track command volume, response quality, and available models from the built-in admin panel.
-
-Result: field engineers or service coordinators receive AI-generated recommendations inside the IFS Cloud UI without leaving their workflow, backed by your governed Nexa deployment.
-
----
-
 ## Troubleshooting
 - **`SDKError(Model loading failed)`**: ensure the host-side Nexa service has pulled the requested model and has access to the proper NPU/GPU runtime (QNN/QT libraries on Snapdragon X Elite).
 - **Model not listed in UI**: confirm `nexa list` shows the model on the host, then hit `/api/models?refresh=1`. Also check that the Compose volume mounting the cache is intact.
@@ -161,6 +149,17 @@ Result: field engineers or service coordinators receive AI-generated recommendat
 
 Bug reports and feature ideas are also welcome via GitHub Issues.
 
+---
+
+## Example: Possible ways of integrate with IFS Cloud
+Bring Nexa-powered generative assistance directly into your IFS Cloud processes:
+1. **Expose the API** – deploy this app in your preferred environment (Azure Container Apps, AWS ECS, on-prem) and secure it behind your gateway/IdP.
+2. **Create an IFS business event** – configure IFS Cloud to emit events (e.g., service request created). Forward the payload to the Nexa CLI App’s `/api/run-nexa` endpoint using an integration flow (IFS Connect, Azure Logic Apps, or MuleSoft).
+3. **Craft domain prompts** – build prompt templates that summarize IFS data (asset history, work orders) and request recommendations or draft responses from Nexa models.
+4. **Store enriched insights** – write the Nexa output back to IFS via a REST/ODATA call, populate custom fields, or trigger further workflow automations.
+5. **Monitor in the dashboard** – operators track command volume, response quality, and available models from the built-in admin panel.
+
+Result: field engineers or service coordinators receive AI-generated recommendations inside the IFS Cloud UI without leaving their workflow, backed by your governed Nexa deployment.
 ---
 
 ## About IFS-ERP Consulting
