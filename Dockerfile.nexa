@@ -1,7 +1,7 @@
 FROM debian:bookworm-slim
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG NEXA_INSTALL_URL="https://github.com/NexaAI/nexa-sdk/releases/download/v0.2.38-rc3/nexa-cli_linux_x86_64.sh"
+ARG NEXA_INSTALL_URL="https://github.com/NexaAI/nexa-sdk/releases/download/v0.2.38/nexa-cli_linux_x86_64.sh"
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates bash xz-utils nodejs sox ffmpeg \

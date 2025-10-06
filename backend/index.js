@@ -33,10 +33,20 @@ const nexaExecOptions = (() => {
   }
   return Object.keys(opts).length ? opts : null;
 })();
-const ALLOWED_MODELS = (process.env.NEXA_ALLOWED_MODELS || 'NexaAI/OmniNeural-4B,NexaAI/phi4-mini-npu-turbo')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean);
+const DEFAULT_MODELS = ['NexaAI/OmniNeural-4B', 'NexaAI/phi4-mini-npu-turbo'];
+const ENV_ALLOWED_MODELS = (() => {
+  const raw = process.env.NEXA_ALLOWED_MODELS;
+  if (!raw || !raw.trim()) return [...DEFAULT_MODELS];
+  return raw
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+})();
+const MODEL_ID_REGEX = /([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)/g;
+const MODEL_CACHE_MS = parseInt(process.env.NEXA_MODEL_CACHE_MS || '30000', 10);
+let discoveredModelCache = null;
+let discoveredModelCacheAt = 0;
+let modelDiscoveryPromise = null;
 
 // execa v8 is ESM-only; import it dynamically in CommonJS context
 async function runNexa(args) {
@@ -45,6 +55,184 @@ async function runNexa(args) {
     return execa(NEXA_EXECUTABLE, args, nexaExecOptions);
   }
   return execa(NEXA_EXECUTABLE, args);
+}
+
+function extractModelIdsFromText(text) {
+  if (!text) return [];
+  const str = String(text).replace(/\u001b\[[0-9;]*m/g, '');
+  const ids = [];
+  const seen = new Set();
+  let match;
+  while ((match = MODEL_ID_REGEX.exec(str)) !== null) {
+    const id = match[1] || match[0];
+    if (!seen.has(id) && id && !id.toLowerCase().startsWith('key/')) {
+      seen.add(id);
+      ids.push(id);
+    }
+  }
+  MODEL_ID_REGEX.lastIndex = 0;
+  return ids;
+}
+
+function collectModelsFromJson(data) {
+  if (!data) return [];
+  const collected = [];
+  const pushValue = (value) => {
+    if (!value) return;
+    if (typeof value === 'string') {
+      collected.push(value);
+      return;
+    }
+    if (typeof value === 'object') {
+      ['id', 'model', 'name', 'slug'].forEach((key) => {
+        const v = value[key];
+        if (typeof v === 'string') {
+          collected.push(v);
+        }
+      });
+    }
+  };
+  if (Array.isArray(data)) {
+    data.forEach(pushValue);
+  } else if (typeof data === 'object') {
+    pushValue(data);
+    ['models', 'available_models', 'data'].forEach((key) => {
+      if (Array.isArray(data[key])) {
+        data[key].forEach(pushValue);
+      }
+    });
+  }
+  return collected;
+}
+
+function mergeModelLists(primary, secondary) {
+  const seen = new Set();
+  const models = [];
+  const add = (value) => {
+    if (!value || typeof value !== 'string') return;
+    const normalized = value.trim();
+    if (!normalized || normalized.toLowerCase().startsWith('key/')) return;
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    models.push(normalized);
+  };
+  primary.forEach(add);
+  secondary.forEach(add);
+  if (!models.length) {
+    DEFAULT_MODELS.forEach(add);
+  }
+  return models;
+}
+
+async function discoverModelsViaHttp() {
+  const endpoints = [
+    `${NEXA_HTTP_URL}/v1/models`,
+    `${NEXA_HTTP_URL}/models`,
+    `${NEXA_HTTP_URL}/diag`,
+  ];
+  for (const url of endpoints) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), NEXA_HTTP_TIMEOUT_MS);
+    try {
+      const resp = await fetch(url, { signal: controller.signal });
+      if (!resp.ok) continue;
+      const contentType = resp.headers.get('content-type') || '';
+      let ids = [];
+      if (contentType.includes('application/json')) {
+        const payload = await resp.json();
+        if (url.endsWith('/diag')) {
+          if (payload && typeof payload === 'object' && payload.models) {
+            if (Array.isArray(payload.models)) {
+              ids = collectModelsFromJson(payload.models);
+            } else {
+              ids = extractModelIdsFromText(payload.models);
+            }
+          }
+          if (!ids.length) {
+            ids = collectModelsFromJson(payload);
+          }
+        } else {
+          ids = collectModelsFromJson(payload);
+        }
+      } else {
+        const textPayload = await resp.text();
+        ids = extractModelIdsFromText(textPayload);
+      }
+      if (ids.length) {
+        return ids;
+      }
+    } catch (err) {
+      console.warn(`Failed to fetch models from ${url}:`, err.message || err);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return [];
+}
+
+async function discoverModelsViaCli() {
+  try {
+    const { stdout } = await runNexa(['list']);
+    const ids = extractModelIdsFromText(stdout);
+    if (ids.length) return ids;
+  } catch (err) {
+    console.warn('Failed to list Nexa models via CLI:', err.message || err);
+  }
+  return [];
+}
+
+async function refreshAvailableModels() {
+  if (!NEXA_ENABLED) {
+    return mergeModelLists(ENV_ALLOWED_MODELS, []);
+  }
+  let discovered = [];
+  if (NEXA_MODE === 'http') {
+    discovered = await discoverModelsViaHttp();
+    if (!discovered.length) {
+      const fallback = await discoverModelsViaCli();
+      if (fallback.length) {
+        discovered = fallback;
+      }
+    }
+  } else {
+    discovered = await discoverModelsViaCli();
+  }
+  const merged = mergeModelLists(ENV_ALLOWED_MODELS, discovered);
+  return merged.length ? merged : [...DEFAULT_MODELS];
+}
+
+async function getAvailableModels(forceRefresh = false) {
+  if (forceRefresh) {
+    discoveredModelCache = null;
+    discoveredModelCacheAt = 0;
+  } else {
+    const now = Date.now();
+    if (discoveredModelCache && (now - discoveredModelCacheAt) < MODEL_CACHE_MS) {
+      return discoveredModelCache;
+    }
+    if (modelDiscoveryPromise) {
+      return modelDiscoveryPromise;
+    }
+  }
+
+  const discoveryTask = (async () => {
+    try {
+      const models = await refreshAvailableModels();
+      discoveredModelCache = models;
+      discoveredModelCacheAt = Date.now();
+      return models;
+    } catch (err) {
+      console.error('Failed to refresh Nexa model cache:', err.message || err);
+      discoveredModelCache = [...DEFAULT_MODELS];
+      discoveredModelCacheAt = Date.now();
+      return discoveredModelCache;
+    } finally {
+      modelDiscoveryPromise = null;
+    }
+  })();
+
+  modelDiscoveryPromise = discoveryTask;
+  return discoveryTask;
 }
 
 async function verifyNexaHttp(url) {
@@ -181,17 +369,33 @@ app.post('/api/login', async (req, res) => {
 });
 
 // Model routes
-app.get('/api/models', (req, res) => {
-  res.json({ models: ALLOWED_MODELS });
+app.get('/api/models', async (req, res) => {
+  try {
+    const refreshParam = req.query ? String(req.query.refresh || '') : '';
+    const forceRefresh = refreshParam === '1' || refreshParam.toLowerCase() === 'true';
+    const models = await getAvailableModels(forceRefresh);
+    res.json({ models });
+  } catch (error) {
+    console.error('Failed to fetch model list:', error.message || error);
+    res.status(500).json({ error: 'Failed to determine available models.' });
+  }
 });
 
 app.put('/api/user/default-model', authenticate, async (req, res) => {
   try {
     const { model } = req.body;
-    if (!ALLOWED_MODELS.includes(model)) {
+    const requested = typeof model === 'string' ? model.trim() : '';
+    if (!requested) {
+      return res.status(400).json({ error: 'Model is required.' });
+    }
+    let models = await getAvailableModels();
+    if (!models.includes(requested)) {
+      models = await getAvailableModels(true);
+    }
+    if (!models.includes(requested)) {
       return res.status(400).json({ error: 'Unsupported model requested.' });
     }
-    const result = await users.updateDefaultModel(req.user.userId, model);
+    const result = await users.updateDefaultModel(req.user.userId, requested);
     res.json({ defaultModel: result.default_model });
   } catch (error) {
     console.error('Update default model failed:', error.message);
@@ -211,10 +415,39 @@ app.post(
     }
     const { command, model } = req.body;
     const promptText = typeof command === 'string' ? command : '';
-    const requestedModel = model || req.user?.defaultModel || ALLOWED_MODELS[0];
 
-    if (!ALLOWED_MODELS.includes(requestedModel)) {
-      return res.status(400).json({ success: false, error: 'Unsupported model requested.' });
+    let availableModels = await getAvailableModels();
+    if (!availableModels.length) {
+      availableModels = await getAvailableModels(true);
+    }
+    if (!availableModels.length) {
+      return res.status(503).json({ success: false, error: 'No Nexa models are available. Pull a model first.' });
+    }
+
+    const explicitModel = typeof model === 'string' ? model.trim() : '';
+    let requestedModel = explicitModel || (typeof req.user?.defaultModel === 'string' ? req.user.defaultModel.trim() : '');
+
+    if (explicitModel) {
+      if (!availableModels.includes(explicitModel)) {
+        availableModels = await getAvailableModels(true);
+        if (!availableModels.includes(explicitModel)) {
+          return res.status(400).json({ success: false, error: 'Unsupported model requested.' });
+        }
+      }
+      requestedModel = explicitModel;
+    } else if (requestedModel) {
+      if (!availableModels.includes(requestedModel)) {
+        availableModels = await getAvailableModels(true);
+        if (!availableModels.includes(requestedModel)) {
+          requestedModel = availableModels[0];
+        }
+      }
+    } else {
+      requestedModel = availableModels[0];
+    }
+
+    if (!requestedModel) {
+      return res.status(503).json({ success: false, error: 'No Nexa models are available. Pull a model first.' });
     }
 
     if (!promptText.trim()) {
@@ -326,9 +559,13 @@ app.post(
 
 // Stats and commands
 app.get('/api/stats', authenticate, async (req, res) => {
-  const query = 'SELECT * FROM command_stats WHERE user_id = $1';
-  const { rows } = await pool.query(query, [req.user.userId]);
-  res.json(rows[0] || { total_commands: 0, avg_command_length: 0, active_duration_seconds: 0 });
+  try {
+    const stats = await commands.getCommandStats(req.user.userId);
+    res.json(stats);
+  } catch (error) {
+    console.error('Failed to fetch command stats:', error.message || error);
+    res.status(500).json({ error: 'Failed to fetch command stats.' });
+  }
 });
 
 app.get('/api/commands', authenticate, async (req, res) => {

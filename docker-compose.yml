@@ -41,6 +41,8 @@ services:
       NEXA_HTTP_URL: ${NEXA_HTTP_URL:-http://host.docker.internal:18181}
       NEXA_HTTP_INFER_PATH: ${NEXA_HTTP_INFER_PATH:-/v1/chat/completions}
       NEXA_ALLOWED_MODELS: ${NEXA_ALLOWED_MODELS:-NexaAI/OmniNeural-4B,NexaAI/phi4-mini-npu-turbo}
+    volumes:
+      - '${USERPROFILE}/.cache/nexa.ai/nexa_sdk/models:/home/nextjs/.cache/nexa.ai/nexa_sdk/models:ro'
     depends_on:
       db:
         condition: service_healthy

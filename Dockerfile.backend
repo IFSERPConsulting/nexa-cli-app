@@ -1,17 +1,46 @@
-FROM node:18-alpine
+FROM node:18-bookworm
 
-# Install curl for health checks
-RUN apk add --no-cache curl
+ARG DEBIAN_FRONTEND=noninteractive
+ARG NEXA_INSTALL_URL="https://github.com/NexaAI/nexa-sdk/releases/download/v0.2.38/nexa-cli_linux_x86_64.sh"
+
+# Install runtime dependencies, enabling amd64 libs when running on arm64 builders
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  if [ "$arch" != "amd64" ]; then dpkg --add-architecture amd64; fi; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends curl ca-certificates bash xz-utils; \
+  if [ "$arch" != "amd64" ]; then \
+    apt-get install -y --no-install-recommends libc6:amd64 libstdc++6:amd64 libgcc-s1:amd64; \
+  fi; \
+  rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY backend/package*.json ./
 RUN npm ci --only=production && npm cache clean --force
 
+# Install Nexa CLI inside the backend container so discovery commands work in HTTP mode
+RUN set -eux; \
+  url="$NEXA_INSTALL_URL"; \
+  echo "Attempting $url"; \
+  if ! curl -fsSI "$url" >/dev/null 2>&1; then \
+    echo "Falling back to latest release asset discovery"; \
+    url=$(curl -fsSL --retry 5 --retry-all-errors https://api.github.com/repos/NexaAI/nexa-sdk/releases \
+      | grep -oE 'https://[^"[:space:]]*/nexa-cli_linux_x86_64.sh' \
+      | head -n1); \
+  fi; \
+  echo "Resolved Nexa installer URL: $url"; \
+  curl -fsSL --retry 5 --retry-all-errors "$url" -o /tmp/nexa-cli.sh; \
+  chmod +x /tmp/nexa-cli.sh; \
+  bash /tmp/nexa-cli.sh || sh /tmp/nexa-cli.sh || true; \
+  rm -f /tmp/nexa-cli.sh; \
+  command -v nexa || (echo "ERROR: Nexa CLI not installed" && exit 1)
+
 COPY backend/ ./
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
+RUN groupadd --gid 1001 nodejs \
+ && useradd --uid 1001 --gid nodejs --system --create-home nextjs
 
 # Change ownership
 RUN chown -R nextjs:nodejs /app
